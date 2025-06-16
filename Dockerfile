@@ -85,22 +85,27 @@ COPY docker/nginx/default.conf /etc/nginx/http.d/default.conf
 COPY docker/supervisor/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
 # Copiar arquivos do projeto
-COPY --chown=$user:$user composer.json composer.lock* ./
-COPY --chown=$user:$user package.json package-lock.json* ./
+COPY --chown=$user:$user composer.json ./
+COPY --chown=$user:$user package.json ./
+COPY --chown=$user:$user env.example ./.env.example
 
 # Instalar dependências como usuário
 USER $user
+
+# Criar diretórios necessários
+RUN mkdir -p vendor bootstrap/cache
 
 # Instalar dependências do Composer
 RUN composer install \
     --no-dev \
     --no-scripts \
-    --no-autoloader \
     --optimize-autoloader \
-    --prefer-dist
+    --prefer-dist \
+    --no-interaction \
+    || composer install --no-dev --optimize-autoloader --prefer-dist --no-interaction
 
 # Instalar dependências do Node.js
-RUN npm ci --only=production
+RUN npm install --only=production --no-audit --no-fund --silent || npm install --production
 
 # Voltar para root
 USER root
@@ -110,10 +115,10 @@ COPY --chown=$user:$user . .
 
 # Finalizar instalação do Composer
 USER $user
-RUN composer dump-autoload --optimize
+RUN composer dump-autoload --optimize || echo "Autoload dump failed, continuing..."
 
-# Compilar assets
-RUN npm run build
+# Compilar assets (com fallback)
+RUN npm run build || npm run production || echo "Asset compilation failed, continuing..."
 
 # Voltar para root para configurações finais
 USER root

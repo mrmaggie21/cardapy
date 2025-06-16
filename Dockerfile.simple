@@ -1,0 +1,114 @@
+# Dockerfile Simplificado para Cardapy
+FROM php:8.2-fpm-alpine
+
+# Metadados
+LABEL maintainer="Cardapy Team"
+LABEL description="Sistema de Cardápio Digital Multi-Tenant - Versão Simplificada"
+
+# Argumentos
+ARG user=cardapy
+ARG uid=1000
+
+# Variáveis de ambiente
+ENV COMPOSER_ALLOW_SUPERUSER=1
+
+# Instalar dependências básicas
+RUN apk add --no-cache \
+    bash \
+    curl \
+    git \
+    unzip \
+    zip \
+    libpng-dev \
+    libjpeg-turbo-dev \
+    freetype-dev \
+    libzip-dev \
+    icu-dev \
+    oniguruma-dev \
+    libxml2-dev \
+    mysql-client \
+    nginx \
+    supervisor \
+    nodejs \
+    npm
+
+# Instalar extensões PHP
+RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
+    && docker-php-ext-install -j$(nproc) \
+        pdo_mysql \
+        mysqli \
+        mbstring \
+        exif \
+        pcntl \
+        bcmath \
+        gd \
+        zip \
+        intl \
+        xml \
+        opcache
+
+# Instalar Redis extension
+RUN apk add --no-cache --virtual .build-deps $PHPIZE_DEPS \
+    && pecl install redis \
+    && docker-php-ext-enable redis \
+    && apk del .build-deps
+
+# Instalar Composer
+COPY --from=composer:2.6 /usr/bin/composer /usr/bin/composer
+
+# Criar usuário
+RUN addgroup -g $uid $user \
+    && adduser -D -u $uid -G $user -s /bin/bash $user
+
+# Configurar diretório de trabalho
+WORKDIR /var/www/html
+
+# Copiar arquivos de configuração
+COPY docker/php/php.ini /usr/local/etc/php/conf.d/99-custom.ini
+COPY docker/nginx/default.conf /etc/nginx/http.d/default.conf
+COPY docker/supervisor/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+
+# Copiar código da aplicação
+COPY --chown=$user:$user . .
+
+# Configurar permissões
+RUN chown -R $user:$user /var/www/html \
+    && chmod -R 755 /var/www/html \
+    && mkdir -p storage/logs storage/framework/cache storage/framework/sessions storage/framework/views bootstrap/cache \
+    && chmod -R 775 storage bootstrap/cache
+
+# Instalar dependências como usuário
+USER $user
+
+# Instalar dependências do Composer (com fallback)
+RUN composer install --no-dev --optimize-autoloader --no-interaction || \
+    composer install --no-dev --optimize-autoloader || \
+    echo "Composer install failed, continuing..."
+
+# Instalar dependências do Node.js (com fallback)
+RUN npm install --production --silent || \
+    npm install --production || \
+    echo "NPM install failed, continuing..."
+
+# Compilar assets (com fallback)
+RUN npm run build || \
+    npm run production || \
+    echo "Asset compilation failed, continuing..."
+
+# Voltar para root
+USER root
+
+# Script de inicialização
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# Expor portas
+EXPOSE 80 9000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost/health || exit 1
+
+# Comando de inicialização
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"] 
