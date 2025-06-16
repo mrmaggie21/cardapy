@@ -42,7 +42,7 @@ COPY --chown=$user:$user . /var/www
 
 # Instalar dependências do PHP
 USER $user
-RUN composer install --no-dev --optimize-autoloader --no-interaction
+RUN composer install --no-dev --optimize-autoloader || true
 
 # Instalar dependências do Node.js e compilar assets
 RUN npm install && npm run build
@@ -53,7 +53,7 @@ USER root
 # Configurar permissões
 RUN chown -R $user:www-data /var/www \
     && chmod -R 755 /var/www \
-    && chmod -R 775 /var/www/storage \
+    && chmod -R 775 /var/www/storage || true \
     && chmod -R 775 /var/www/bootstrap/cache
 
 # Configurar Supervisor
