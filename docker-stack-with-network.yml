@@ -4,7 +4,12 @@ services:
   webserver:
     image: nginx:alpine
     ports:
-      - "80:80"
+      - target: 80
+        published: 80
+        protocol: tcp
+        mode: ingress
+    networks:
+      - cardapy-net
     deploy:
       replicas: 1
       restart_policy:
@@ -25,6 +30,8 @@ services:
       MYSQL_USER: cardapy_user
     volumes:
       - mysql_data:/var/lib/mysql
+    networks:
+      - cardapy-net
     deploy:
       replicas: 1
       restart_policy:
@@ -41,6 +48,8 @@ services:
     image: redis:7-alpine
     volumes:
       - redis_data:/data
+    networks:
+      - cardapy-net
     deploy:
       replicas: 1
       restart_policy:
@@ -56,7 +65,12 @@ services:
   adminer:
     image: adminer:latest
     ports:
-      - "8080:8080"
+      - target: 8080
+        published: 8080
+        protocol: tcp
+        mode: ingress
+    networks:
+      - cardapy-net
     deploy:
       replicas: 1
       restart_policy:
@@ -68,13 +82,12 @@ services:
           cpus: '0.2'
           memory: 128M
 
+networks:
+  cardapy-net:
+    external: true
+
 volumes:
   mysql_data:
     driver: local
   redis_data:
-    driver: local
-
-configs:
-  nginx_config:
-    external: false
-    file: ./docker/nginx/default.conf 
+    driver: local 
