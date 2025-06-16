@@ -1,95 +1,166 @@
 version: '3.8'
 
 services:
-  # Aplicação PHP/Laravel
+  # Aplicação Cardapy
   app:
-    image: php:8.2-fpm
-    working_dir: /var/www
-    volumes:
-      - app_data:/var/www
-    environment:
-      - APP_ENV=production
-      - APP_DEBUG=false
-    networks:
-      - cardapy_network
-    depends_on:
-      - db
-      - redis
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
-        delay: 5s
-        max_attempts: 3
-
-  # Servidor Web Nginx
-  webserver:
-    image: nginx:alpine
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        user: cardapy
+        uid: 1000
+        gid: 1000
+    image: cardapy:latest
+    container_name: cardapy-app
+    restart: unless-stopped
+    working_dir: /var/www/html
     ports:
       - "80:80"
+      - "9000:9000"
     volumes:
-      - app_data:/var/www
-      - nginx_config:/etc/nginx/conf.d
-    networks:
-      - cardapy_network
-    depends_on:
-      - app
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
-        delay: 5s
-        max_attempts: 3
-
-  # Banco de dados MySQL (Principal)
-  db:
-    image: mysql:8.0
+      - ./:/var/www/html
+      - cardapy-storage:/var/www/html/storage
+      - cardapy-cache:/var/www/html/bootstrap/cache
     environment:
-      MYSQL_DATABASE: cardapy
-      MYSQL_ROOT_PASSWORD: root_password
-      MYSQL_PASSWORD: cardapy_password
-      MYSQL_USER: cardapy_user
-    volumes:
-      - db_data:/var/lib/mysql
+      - APP_NAME=Cardapy
+      - APP_ENV=local
+      - APP_DEBUG=true
+      - APP_URL=http://localhost
+      - DB_CONNECTION=mysql
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_DATABASE=cardapy_db
+      - DB_USERNAME=cardapy_user
+      - DB_PASSWORD=cardapy_pass_2024
+      - CACHE_DRIVER=redis
+      - SESSION_DRIVER=redis
+      - QUEUE_CONNECTION=redis
+      - REDIS_HOST=redis
+      - REDIS_PASSWORD=null
+      - REDIS_PORT=6379
+      - MAIL_MAILER=smtp
+      - MAIL_HOST=mailhog
+      - MAIL_PORT=1025
+      - MAIL_USERNAME=null
+      - MAIL_PASSWORD=null
+      - MAIL_ENCRYPTION=null
+      - MERCADOPAGO_ACCESS_TOKEN=
+      - MERCADOPAGO_PUBLIC_KEY=
+      - RUN_MIGRATIONS=true
+    depends_on:
+      - mysql
+      - redis
+    networks:
+      - cardapy-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Banco de Dados MySQL
+  mysql:
+    image: mysql:8.0
+    container_name: cardapy-mysql
+    restart: unless-stopped
     ports:
       - "3306:3306"
-    networks:
-      - cardapy_network
+    environment:
+      MYSQL_DATABASE: cardapy_db
+      MYSQL_USER: cardapy_user
+      MYSQL_PASSWORD: cardapy_pass_2024
+      MYSQL_ROOT_PASSWORD: cardapy_root_2024
+      MYSQL_ALLOW_EMPTY_PASSWORD: 'no'
+    volumes:
+      - cardapy-mysql:/var/lib/mysql
+      - ./docker/mysql/my.cnf:/etc/mysql/conf.d/my.cnf
     command: --default-authentication-plugin=mysql_native_password
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
-        delay: 5s
-        max_attempts: 3
+    networks:
+      - cardapy-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  # Redis (Cache e Sessões)
+  # Cache Redis
   redis:
     image: redis:7-alpine
+    container_name: cardapy-redis
+    restart: unless-stopped
     ports:
       - "6379:6379"
     volumes:
-      - redis_data:/data
+      - cardapy-redis:/data
+      - ./docker/redis/redis.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
     networks:
-      - cardapy_network
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
-        delay: 5s
-        max_attempts: 3
+      - cardapy-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
-networks:
-  cardapy_network:
-    driver: overlay
-    attachable: true
+  # PHPMyAdmin
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin:latest
+    container_name: cardapy-phpmyadmin
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+      PMA_USER: cardapy_user
+      PMA_PASSWORD: cardapy_pass_2024
+      MYSQL_ROOT_PASSWORD: cardapy_root_2024
+    depends_on:
+      - mysql
+    networks:
+      - cardapy-network
 
+  # MailHog (para testes de email)
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: cardapy-mailhog
+    restart: unless-stopped
+    ports:
+      - "1025:1025"  # SMTP
+      - "8025:8025"  # Web UI
+    networks:
+      - cardapy-network
+
+  # Redis Commander (interface web para Redis)
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: cardapy-redis-commander
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      REDIS_HOSTS: local:redis:6379
+    depends_on:
+      - redis
+    networks:
+      - cardapy-network
+
+# Volumes persistentes
 volumes:
-  db_data:
+  cardapy-mysql:
     driver: local
-  redis_data:
+  cardapy-redis:
     driver: local
-  app_data:
+  cardapy-storage:
     driver: local
-  nginx_config:
-    driver: local 
+  cardapy-cache:
+    driver: local
+
+# Rede personalizada
+networks:
+  cardapy-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16 

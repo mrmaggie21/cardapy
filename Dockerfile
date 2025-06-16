@@ -1,78 +1,154 @@
-FROM php:8.2-fpm
+# Dockerfile para Cardapy - Sistema de Cardápio Digital Multi-Tenant
+FROM php:8.2-fpm-alpine
+
+# Metadados
+LABEL maintainer="Cardapy Team"
+LABEL description="Sistema de Cardápio Digital Multi-Tenant"
+LABEL version="1.0.0"
 
 # Argumentos do build
 ARG user=cardapy
 ARG uid=1000
+ARG gid=1000
+
+# Variáveis de ambiente
+ENV COMPOSER_ALLOW_SUPERUSER=1
+ENV COMPOSER_HOME=/tmp
+ENV NODE_VERSION=18
 
 # Instalar dependências do sistema
-RUN apt-get update && apt-get install -y \
-    git \
+RUN apk add --no-cache \
+    # Dependências básicas
+    bash \
     curl \
-    libpng-dev \
-    libonig-dev \
-    libxml2-dev \
-    libzip-dev \
-    zip \
+    git \
     unzip \
+    zip \
+    # Dependências do PHP
+    libpng-dev \
+    libjpeg-turbo-dev \
+    freetype-dev \
+    libzip-dev \
+    icu-dev \
+    oniguruma-dev \
+    libxml2-dev \
+    # Dependências do MySQL
+    mysql-client \
+    # Dependências do Redis
+    redis \
+    # Nginx
     nginx \
+    # Supervisor
     supervisor \
-    && docker-php-ext-configure zip \
-    && docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd zip
+    # Node.js
+    nodejs \
+    npm
 
-# Limpar cache
-RUN apt-get clean && rm -rf /var/lib/apt/lists/*
+# Configurar e instalar extensões PHP
+RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
+    && docker-php-ext-install -j$(nproc) \
+        pdo_mysql \
+        mysqli \
+        mbstring \
+        exif \
+        pcntl \
+        bcmath \
+        gd \
+        zip \
+        intl \
+        xml \
+        soap \
+        opcache
+
+# Instalar Redis extension
+RUN apk add --no-cache --virtual .build-deps $PHPIZE_DEPS \
+    && pecl install redis \
+    && docker-php-ext-enable redis \
+    && apk del .build-deps
 
 # Instalar Composer
-COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+COPY --from=composer:2.6 /usr/bin/composer /usr/bin/composer
 
-# Criar usuário do sistema para rodar Composer e Artisan
-RUN useradd -G www-data,root -u $uid -d /home/$user $user
-RUN mkdir -p /home/$user/.composer && \
-    chown -R $user:$user /home/$user
+# Criar grupo e usuário
+RUN addgroup -g $gid $user \
+    && adduser -D -u $uid -G $user -s /bin/bash $user \
+    && adduser $user www-data
 
-# Instalar Node.js e npm
-RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
-    && apt-get install -y nodejs
+# Configurar diretórios
+WORKDIR /var/www/html
 
-# Configurar diretório de trabalho
-WORKDIR /var/www
+# Copiar arquivos de configuração primeiro (para cache do Docker)
+COPY docker/php/php.ini /usr/local/etc/php/conf.d/99-custom.ini
+COPY docker/php/opcache.ini /usr/local/etc/php/conf.d/10-opcache.ini
+COPY docker/nginx/nginx.conf /etc/nginx/nginx.conf
+COPY docker/nginx/default.conf /etc/nginx/http.d/default.conf
+COPY docker/supervisor/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
-# Copiar arquivos da aplicação
-COPY --chown=$user:$user . /var/www
+# Copiar arquivos do projeto
+COPY --chown=$user:$user composer.json composer.lock* ./
+COPY --chown=$user:$user package.json package-lock.json* ./
 
-# Instalar dependências do PHP
+# Instalar dependências como usuário
 USER $user
-RUN composer install --no-dev --optimize-autoloader || true
 
-# Instalar dependências do Node.js e compilar assets
-RUN npm install && npm run build
+# Instalar dependências do Composer
+RUN composer install \
+    --no-dev \
+    --no-scripts \
+    --no-autoloader \
+    --optimize-autoloader \
+    --prefer-dist
+
+# Instalar dependências do Node.js
+RUN npm ci --only=production
+
+# Voltar para root
+USER root
+
+# Copiar resto dos arquivos
+COPY --chown=$user:$user . .
+
+# Finalizar instalação do Composer
+USER $user
+RUN composer dump-autoload --optimize
+
+# Compilar assets
+RUN npm run build
 
 # Voltar para root para configurações finais
 USER root
 
 # Configurar permissões
-RUN chown -R $user:www-data /var/www \
-    && chmod -R 755 /var/www \
-    && chmod -R 775 /var/www/storage || true \
-    && chmod -R 775 /var/www/bootstrap/cache
+RUN chown -R $user:www-data /var/www/html \
+    && chmod -R 755 /var/www/html \
+    && mkdir -p /var/www/html/storage/logs \
+    && mkdir -p /var/www/html/storage/framework/cache \
+    && mkdir -p /var/www/html/storage/framework/sessions \
+    && mkdir -p /var/www/html/storage/framework/views \
+    && mkdir -p /var/www/html/bootstrap/cache \
+    && chmod -R 775 /var/www/html/storage \
+    && chmod -R 775 /var/www/html/bootstrap/cache
 
-# Configurar Supervisor
-COPY docker/supervisor/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
-
-# Configurar PHP
-COPY docker/php/local.ini /usr/local/etc/php/conf.d/local.ini
-COPY docker/php/opcache.ini /usr/local/etc/php/conf.d/opcache.ini
-
-# Expor porta
-EXPOSE 9000
+# Configurar Nginx
+RUN mkdir -p /var/log/nginx \
+    && mkdir -p /var/lib/nginx/tmp \
+    && chown -R nginx:nginx /var/log/nginx \
+    && chown -R nginx:nginx /var/lib/nginx
 
 # Script de inicialização
-COPY docker/entrypoint.sh /usr/local/bin/
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
-# Definir usuário padrão
-USER $user
+# Expor portas
+EXPOSE 80 9000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost/health || exit 1
+
+# Volumes
+VOLUME ["/var/www/html/storage", "/var/www/html/bootstrap/cache"]
 
 # Comando de inicialização
-ENTRYPOINT ["entrypoint.sh"]
-CMD ["php-fpm"] 
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"] 

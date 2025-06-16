@@ -1,0 +1,72 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Docker
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# Documentation
+README.md
+*.md
+docs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Laravel
+/node_modules
+/public/hot
+/public/storage
+/storage/*.key
+/vendor
+.env
+.env.backup
+.phpunit.result.cache
+Homestead.json
+Homestead.yaml
+npm-debug.log
+yarn-error.log
+
+# Logs
+*.log
+logs/
+
+# Cache
+.cache/
+*.cache
+
+# Temporary files
+*.tmp
+*.temp
+/tmp
+
+# Tests
+/tests
+phpunit.xml
+.phpunit.cache
+
+# Development tools
+.editorconfig
+.styleci.yml
+.php_cs
+.php_cs.cache
+
+# Deployment scripts
+deploy*.ps1
+deploy*.sh
+portainer-token.txt
+
+# Build artifacts
+/public/build
+/public/mix-manifest.json 
