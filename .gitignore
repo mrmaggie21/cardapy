@@ -1,0 +1,69 @@
+# Laravel
+/vendor/
+/node_modules/
+/public/hot
+/public/storage
+/storage/*.key
+/storage/app/public/*
+!/storage/app/public/.gitkeep
+/.env
+/.env.backup
+/.env.production
+/.phpunit.result.cache
+/Homestead.json
+/Homestead.yaml
+/auth.json
+/npm-debug.log
+/yarn-error.log
+
+# Docker
+/.docker/
+/docker/volumes/
+
+# IDE
+/.vscode/
+/.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+/storage/logs/*.log
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Composer
+/vendor/
+composer.phar
+
+# Laravel specific
+/bootstrap/compiled.php
+/bootstrap/cache/
+/app/storage/
+/storage/debugbar/
+
+# Environment files
+.env*
+!.env.example
+
+# LemonNetwork config
+.env.lemon-network
+
+# Temporary files
+*.tmp
+*.temp
+*.cache 

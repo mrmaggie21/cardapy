@@ -1,0 +1,83 @@
+version: '3.8'
+
+# Override para configuração de rede LemonNetwork
+services:
+  app:
+    networks:
+      - lemon-network
+      - cardapy_network
+
+  webserver:
+    networks:
+      - lemon-network
+      - cardapy_network
+
+  db:
+    networks:
+      - lemon-network
+      - cardapy_network
+
+  db_shard_1:
+    networks:
+      - lemon-network
+      - cardapy_network
+
+  db_shard_2:
+    networks:
+      - lemon-network
+      - cardapy_network
+
+  redis:
+    networks:
+      - lemon-network
+      - cardapy_network
+
+  elasticsearch:
+    networks:
+      - lemon-network
+      - cardapy_network
+
+  kibana:
+    networks:
+      - lemon-network
+      - cardapy_network
+
+  queue_worker:
+    networks:
+      - lemon-network
+      - cardapy_network
+
+  scheduler:
+    networks:
+      - lemon-network
+      - cardapy_network
+
+  mailhog:
+    networks:
+      - lemon-network
+      - cardapy_network
+
+  adminer:
+    networks:
+      - lemon-network
+      - cardapy_network
+
+  redis_commander:
+    networks:
+      - lemon-network
+      - cardapy_network
+
+networks:
+  lemon-network:
+    name: lemon-network
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.20.0.0/16
+          gateway: 172.20.0.1
+    driver_opts:
+      com.docker.network.bridge.name: lemon-bridge
+      com.docker.network.bridge.enable_icc: "true"
+      com.docker.network.bridge.enable_ip_masquerade: "true"
+      com.docker.network.bridge.host_binding_ipv4: "0.0.0.0" 

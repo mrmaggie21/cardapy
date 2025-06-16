@@ -1,0 +1,226 @@
+version: '3.8'
+
+services:
+  # Aplicação PHP/Laravel
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cardapy_app
+    restart: unless-stopped
+    working_dir: /var/www
+    volumes:
+      - ./:/var/www
+      - ./docker/php/local.ini:/usr/local/etc/php/conf.d/local.ini
+    networks:
+      - cardapy_network
+    depends_on:
+      - db
+      - redis
+      - elasticsearch
+
+  # Servidor Web Nginx
+  webserver:
+    image: nginx:alpine
+    container_name: cardapy_webserver
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./:/var/www
+      - ./docker/nginx/conf.d/:/etc/nginx/conf.d/
+      - ./docker/nginx/ssl/:/etc/nginx/ssl/
+    networks:
+      - cardapy_network
+    depends_on:
+      - app
+
+  # Banco de dados MySQL (Principal)
+  db:
+    image: mysql:8.0
+    container_name: cardapy_db
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: cardapy
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_PASSWORD: cardapy_password
+      MYSQL_USER: cardapy_user
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d
+    ports:
+      - "3306:3306"
+    networks:
+      - cardapy_network
+    command: --default-authentication-plugin=mysql_native_password
+
+  # Bancos de dados para Sharding (Tenants)
+  db_shard_1:
+    image: mysql:8.0
+    container_name: cardapy_db_shard_1
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: cardapy_tenant_1
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_PASSWORD: cardapy_password
+      MYSQL_USER: cardapy_user
+    volumes:
+      - db_shard_1_data:/var/lib/mysql
+    ports:
+      - "3307:3306"
+    networks:
+      - cardapy_network
+    command: --default-authentication-plugin=mysql_native_password
+
+  db_shard_2:
+    image: mysql:8.0
+    container_name: cardapy_db_shard_2
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: cardapy_tenant_2
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_PASSWORD: cardapy_password
+      MYSQL_USER: cardapy_user
+    volumes:
+      - db_shard_2_data:/var/lib/mysql
+    ports:
+      - "3308:3306"
+    networks:
+      - cardapy_network
+    command: --default-authentication-plugin=mysql_native_password
+
+  # Redis (Cache e Sessões)
+  redis:
+    image: redis:7-alpine
+    container_name: cardapy_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - cardapy_network
+    command: redis-server --appendonly yes
+
+  # Elasticsearch (Busca)
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.8.0
+    container_name: cardapy_elasticsearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - xpack.security.enabled=false
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    networks:
+      - cardapy_network
+
+  # Kibana (Interface do Elasticsearch)
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.8.0
+    container_name: cardapy_kibana
+    restart: unless-stopped
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    networks:
+      - cardapy_network
+    depends_on:
+      - elasticsearch
+
+  # Worker para filas
+  queue_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cardapy_queue_worker
+    restart: unless-stopped
+    working_dir: /var/www
+    volumes:
+      - ./:/var/www
+    networks:
+      - cardapy_network
+    depends_on:
+      - db
+      - redis
+    command: php artisan queue:work --sleep=3 --tries=3 --max-time=3600
+
+  # Scheduler (Cron)
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cardapy_scheduler
+    restart: unless-stopped
+    working_dir: /var/www
+    volumes:
+      - ./:/var/www
+    networks:
+      - cardapy_network
+    depends_on:
+      - db
+      - redis
+    command: >
+      sh -c "while true; do
+        php artisan schedule:run --verbose --no-interaction &
+        sleep 60
+      done"
+
+  # MailHog (Teste de emails)
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: cardapy_mailhog
+    restart: unless-stopped
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    networks:
+      - cardapy_network
+
+  # Adminer (Interface de banco)
+  adminer:
+    image: adminer:latest
+    container_name: cardapy_adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    networks:
+      - cardapy_network
+    depends_on:
+      - db
+
+  # Redis Commander (Interface do Redis)
+  redis_commander:
+    image: rediscommander/redis-commander:latest
+    container_name: cardapy_redis_commander
+    restart: unless-stopped
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    ports:
+      - "8081:8081"
+    networks:
+      - cardapy_network
+    depends_on:
+      - redis
+
+networks:
+  cardapy_network:
+    driver: bridge
+
+volumes:
+  db_data:
+    driver: local
+  db_shard_1_data:
+    driver: local
+  db_shard_2_data:
+    driver: local
+  redis_data:
+    driver: local
+  elasticsearch_data:
+    driver: local 
